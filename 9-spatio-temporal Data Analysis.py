@@ -14,7 +14,7 @@ CALCULATION OF TOTAL MOVENET RELATED METRICS
 
 """
 import pandas as pd
-import numpy as np
+
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
@@ -25,6 +25,7 @@ import alphashape
 from shapely.geometry import Point, Polygon
 from scipy.interpolate import splprep, splev
 import matplotlib.image as mpimg
+import numpy as np
 
 os.environ["OMP_NUM_THREADS"] = '4'
 from sklearn.cluster import KMeans
@@ -42,9 +43,177 @@ import pyvista as pv
 
 def callculate_movementRelatedScores(input,output):
     df=pd.read_csv(input)
-    result_df=calculate_SplitScore(df,output)
-   # calculate_CompanionScore(df)
-   # calculate_RotationScore(df)
+    #result_df=calculate_SplitScore(df,output)
+   # calculate_SpliteScorePerPhase(df,output)
+    calculate_RotationScorePerPhase(df, output)
+    #calculate_CompanionScore(df,output)
+    #calculate_RotationScore(df,output)
+
+def calculate_RotationScore(df,output):
+    # Ensure data is sorted by matchid, participantId, and time
+    df = df.sort_values(by=['matchId', 'participantId', 'time'])
+
+    # Filter for the desired time range (minutes 5 to 20)
+    df = df[(df['time'] >= 5) & (df['time'] <= 20)]
+
+    # Calculate distances from origin (0,0) for each point
+    df['distance'] = np.sqrt(df['position_x'] ** 2 + df['position_y'] ** 2)
+
+    # Shift distances and positions for the following minute to calculate arc length
+    df['distance_next'] = df.groupby(['matchId', 'participantId'])['distance'].shift(-1)
+    df['position_x_next'] = df.groupby(['matchId', 'participantId'])['position_x'].shift(-1)
+    df['position_y_next'] = df.groupby(['matchId', 'participantId'])['position_y'].shift(-1)
+
+    # Drop rows where next time data is missing (i.e., end of time range for each participant)
+    df = df.dropna(subset=['distance_next', 'position_x_next', 'position_y_next'])
+
+    # Calculate the angle between consecutive points
+    dot_product = df['position_x'] * df['position_x_next'] + df['position_y'] * df['position_y_next']
+    magnitude_product = df['distance'] * df['distance_next']
+    df['cos_theta'] = dot_product / magnitude_product
+    df['cos_theta'] = df['cos_theta'].clip(-1, 1)  # Avoid numerical errors that lead to cosine values outside [-1, 1]
+    df['angle'] = np.arccos(df['cos_theta'])  # Angle in radians
+
+    # Calculate the arc length as average radius * angle
+    df['average_radius'] = (df['distance'] + df['distance_next']) / 2
+    df['arc_length'] = df['average_radius'] * df['angle']
+
+    # Calculate the Rscore by averaging arc lengths for each participant in each match
+    rscore_df = df.groupby(['matchId', 'participantId', 'individualPosition', 'tier','win','championName','lane'])['arc_length'].mean().reset_index()
+    rscore_df = rscore_df.rename(columns={'arc_length': 'RotationScore'})
+
+    # Display the final dataframe
+    outputfilename=output+'RotationScore.csv'
+    rscore_df.to_csv(outputfilename,index=True)
+
+def calculate_RotationScorePerPhase(df,output):
+    # Ensure data is sorted by matchid, participantId, and time
+    df = df.sort_values(by=['matchId', 'participantId', 'time'])
+
+    # Calculate distances from origin (0,0) for each point
+    df['distance'] = np.sqrt(df['position_x'] ** 2 + df['position_y'] ** 2)
+
+    # Shift distances and positions for the following minute to calculate arc length
+    df['distance_next'] = df.groupby(['matchId', 'participantId'])['distance'].shift(-1)
+    df['position_x_next'] = df.groupby(['matchId', 'participantId'])['position_x'].shift(-1)
+    df['position_y_next'] = df.groupby(['matchId', 'participantId'])['position_y'].shift(-1)
+
+    # Drop rows where next time data is missing (i.e., end of time range for each participant)
+    df = df.dropna(subset=['distance_next', 'position_x_next', 'position_y_next'])
+
+    # Calculate the angle between consecutive points
+    dot_product = df['position_x'] * df['position_x_next'] + df['position_y'] * df['position_y_next']
+    magnitude_product = df['distance'] * df['distance_next']
+    df['cos_theta'] = dot_product / magnitude_product
+    df['cos_theta'] = df['cos_theta'].clip(-1, 1)  # Avoid numerical errors
+    df['angle'] = np.arccos(df['cos_theta'])  # Angle in radians
+
+    # Calculate the arc length as average radius * angle
+    df['average_radius'] = (df['distance'] + df['distance_next']) / 2
+    df['arc_length'] = df['average_radius'] * df['angle']
+
+    # Assign phases based on time thresholds
+    conditions = [
+        df['time'] < early_phaseTr,
+        (df['time'] >= early_phaseTr) & (df['time'] < mid_phaseTr),
+        df['time'] >= mid_phaseTr
+    ]
+    choices = ['1', '2', '3']  # Early Phase = 1, Mid Phase = 2, Late Phase = 3
+    df['Phase'] = np.select(conditions, choices, default='1')
+
+    # Group by match, participant, and phase to calculate average arc length
+    rscore_df = df.groupby(['matchId', 'participantId', 'Phase', 'individualPosition',
+                            'tier', 'win', 'championName', 'lane'])['arc_length'].mean().reset_index()
+
+    # Rename the arc_length column to RotationScore
+    rscore_df = rscore_df.rename(columns={'arc_length': 'RotationScore'})
+
+    # Save the final results to a CSV file
+    outputfilename = output + 'RotationScore_phases.csv'
+    rscore_df.to_csv(outputfilename, index=False)
+
+
+def calculate_SpliteScorePerPhase(df, output):
+    dx = df['position_x'].diff(periods=-1)
+    dy = df['position_y'].diff(periods=-1)
+
+    df['xposition_diff'] = dx
+    df['yposition_diff'] = dy
+
+    # Calculate the distance using the Pythagorean theorem
+    distances = np.sqrt(dx ** 2 + dy ** 2)
+    distances.iloc[0] = 0
+    df['distance'] = distances
+
+    # Classify the data into phases based on time thresholds
+    conditions = [
+        df['time'] < early_phaseTr,
+        (df['time'] >= early_phaseTr) & (df['time'] < mid_phaseTr),
+        df['time'] >= mid_phaseTr
+    ]
+    choices = ['1', '2', '3']  # 1: Early Phase, 2: Mid Phase, 3: Late Phase
+    df['Phase'] = np.select(conditions, choices, default='1')
+
+    # Assign teams based on `participantId`
+    df['team'] = df['participantId'].apply(lambda x: 1 if x < 6 else 2)
+
+    # Initialize a list to store the results
+    split_scores = []
+
+    # Group by match and team
+    for (match_id, team), team_data in df.groupby(['matchId', 'team']):
+
+        # Process each player in the current team
+        for player_id in team_data['participantId'].unique():
+
+            # Extract data for the current player
+            player_data = team_data[team_data['participantId'] == player_id]
+
+            # Process each phase separately
+            for phase, phase_data in player_data.groupby('Phase'):
+
+                # Calculate the distance from this player to teammates, minute-by-minute
+                avg_distances_per_minute = []
+
+                for minute in phase_data['time'].unique():
+                    # Player's distance at the current minute
+                    player_distance = phase_data[phase_data['time'] == minute]['distance'].values[0]
+
+                    # Teammates' data at the same minute
+                    teammates_data = team_data[(team_data['participantId'] != player_id) & (team_data['time'] == minute)]
+
+                    # Calculate average distance from this player to teammates
+                    if not teammates_data.empty:
+                        avg_teammate_distance = teammates_data['distance'].mean()
+                        distance_from_teammates = abs(player_distance - avg_teammate_distance)
+                        avg_distances_per_minute.append(distance_from_teammates)
+
+                # Calculate the average split score for this phase
+                avg_split_score = sum(avg_distances_per_minute) / len(
+                    avg_distances_per_minute) if avg_distances_per_minute else None
+
+                # Retrieve additional player-specific information (role, lane, rank, etc.)
+                player_info = player_data.iloc[0][['individualPosition', 'lane', 'tier', 'championName', 'win']]
+
+                # Append results to the list
+                split_scores.append({
+                    'matchId': match_id,
+                    'participantId': player_id,
+                    'phase': phase,
+                    'split_score': avg_split_score,
+                    'individualPosition': player_info['individualPosition'],
+                    'lane': player_info['lane'],
+                    'tier': player_info['tier'],
+                    'championName': player_info['championName'],
+                    'win': player_info['win']
+                })
+
+    # Convert the results into a DataFrame for easier readability
+    split_scores_df = pd.DataFrame(split_scores)
+
+    # Save the results to a CSV file
+    outputfilename = output + 'split_scores_phases.csv'
+    split_scores_df.to_csv(outputfilename, index=False)
 
 #Split score is our way of measuring how far away a player is from their teammates
 def calculate_SplitScore(df,output):
@@ -582,6 +751,19 @@ def LICpatternMovement(file):
     fig, axs = plt.subplots(nrows=3, ncols=ncols, figsize=(15, 10))
     axs = axs.flatten()  # Flatten the 2D array of axes for easy indexing
 
+    fig.patch.set_alpha(0)
+    for ax in axs:
+        ax.patch.set_alpha(0)  # Makes each subplot background transparent
+        # Remove all borders, ticks, and axis labels
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.spines['top'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_title("", fontsize=0)  # No title
     #fig, ax = plt.subplots(figsize=(8, 6))
 
 
@@ -600,7 +782,7 @@ def LICpatternMovement(file):
            # plotMovementDirection_old(df_phase_win,title)
 
             lic_result=flow_like_texture_movement(df_phase_win)
-            alpha_shape=compute_alphaShape(df_phase_win,title,axs[i * 2 + j])
+            alpha_shape=compute_alphaShape(df_phase_win,title,axs[i * 2 + j],filter)
             combine_alphasShapandLLC(lic_result, alpha_shape,title,axs[i * 2 + j])
             # Example usage with your DataFrame
 
@@ -672,7 +854,7 @@ def flow_like_texture_movement(data):
 
     return (lic_result)
 
-def compute_alphaShape(data,title,ax):
+def compute_alphaShape(data,title,ax,f):
     # Load the background image
     background_image = plt.imread('../RealLOLmap.png')  # Update this path to your image file
 
@@ -683,8 +865,8 @@ def compute_alphaShape(data,title,ax):
         ax.set_xlabel("X Position")
         ax.set_ylabel("Y Position")
 
-    offsetx=100
-    offsety = 100
+    offsetx=0
+    offsety = 0
     data['position_x'] = data['position_x'] + offsetx
     data['position_y'] = data['position_y'] + offsety
 
@@ -699,33 +881,41 @@ def compute_alphaShape(data,title,ax):
     #fig, ax = plt.subplots(figsize=(10, 8))
 
     # Call the background plotting function
-    plot_with_background(ax, title)
+    #plot_with_background(ax, title)
 
     # Scatter plot for player movements
-    ax.scatter(data['position_x'], data['position_y'], s=20, c='blue', alpha=0.3, label="Player Movements")
+    """if f==1:
+        ax.scatter(data['position_x'], data['position_y'], s=20, c='blue', alpha=0.3, label="Player Movements")
+    else:
+        ax.scatter(data['position_x'], data['position_y'], s=20, c='red', alpha=0.3, label="Player Movements")
+"""
+    if f == 1:
+        c='blue'
+    else:
+        c='red'
 
     # Plotting the alpha shape
     if isinstance(alpha_shape, Polygon):
         x, y = alpha_shape.exterior.xy
-        ax.plot(x, y, color='red', linewidth=2, label="Alpha Shape Boundary")
+        ax.plot(x, y, color=c, linewidth=2, label="Alpha Shape Boundary")
     else:
         for geom in alpha_shape.geoms:  # For multiple polygons
             x, y = geom.exterior.xy
-            ax.plot(x, y, color='red', linewidth=2)
+            ax.plot(x, y, color=c, linewidth=2)
 
     # Finalizing the plot
-    ax.legend()
+   # ax.legend()
     #plt.show()
 
     return alpha_shape
 
 def combine_alphasShapandLLC(lic_result,alpha_shape,title,ax):
     # Load the background image
-    background_image = plt.imread('../RealLOLmap.png')  # Update this path to your image file
+    #background_image = plt.imread('../RealLOLmap.png')  # Update this path to your image file
 
     def plot_with_background(ax, title):
         # Display the background image
-        ax.imshow(background_image, extent=(0, 15000, 0, 15000), aspect='auto')  # Adjust extent to fit your data
+        #ax.imshow(background_image, extent=(0, 15000, 0, 15000), aspect='auto')  # Adjust extent to fit your data
         ax.set_title(title)
         ax.set_xlabel("X Position")
         ax.set_ylabel("Y Position")
@@ -735,21 +925,22 @@ def combine_alphasShapandLLC(lic_result,alpha_shape,title,ax):
     #fig, ax = plt.subplots(figsize=(12, 10))
 
     # Call the background plotting function
-    plot_with_background(ax, title)
+    #plot_with_background(ax, title)
 
 
 
     # Plotting the alpha shape
     if isinstance(alpha_shape, Polygon):
         x, y = alpha_shape.exterior.xy
-        ax.plot(x, y, color='red', linewidth=2, label="Alpha Shape Boundary")
+        ax.plot(x, y, color='green', linewidth=2, label="Alpha Shape Boundary")
     else:
         for geom in alpha_shape.geoms:
             x, y = geom.exterior.xy
-            ax.plot(x, y, color='red', linewidth=2)
+            ax.plot(x, y, color='green', linewidth=2)
 
     # Finalizing the plot
     ax.legend()
+
     #plt.show()
 
 def Visualize_LolMapBasedonPosition(df,role,phase,k):

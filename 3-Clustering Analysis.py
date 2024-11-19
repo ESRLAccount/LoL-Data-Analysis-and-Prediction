@@ -210,7 +210,7 @@ def make_DensityHeatmapDiffRanks(df,ax,rank1,rank2,phase,cls):
 
 def make_DensityHeatmapDiff(df,ax,phase,cls):
     # Separate data for w=0 and w=1
-    background_image = plt.imread('../Real_LOLMap.png')
+    background_image = plt.imread('../RealLOLMap.png')
     #if len(df) > 50000:
     #    df = df.sample(n=50000, random_state=42)
 
@@ -223,15 +223,15 @@ def make_DensityHeatmapDiff(df,ax,phase,cls):
        df_w1 = df_w1.sample(n=10000, random_state=1)
     """
     # Set up grid for heatmap
-    extent = 0, 15000, 0, 15000
+    extent = 0, 16000, 0, 16000
     ax.imshow(background_image, extent=extent, aspect='auto')
-    xmin, xmax, ymin, ymax = 0, 15000, 0, 15000
+    xmin, xmax, ymin, ymax = 0, 16000, 0, 16000
 
     xgrid, ygrid = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
     positions = np.vstack([xgrid.ravel(), ygrid.ravel()])
 
-    ax.set_xlim(0, 15000)
-    ax.set_ylim(0, 15000)
+    ax.set_xlim(0, 16000)
+    ax.set_ylim(0, 16000)
 
     # Compute kernel density estimates for w=0 and w=1
     kde_w0 = gaussian_kde(np.vstack([df_w0['position_x'], df_w0['position_y']]))
@@ -261,11 +261,11 @@ def make_DensityHeatmapDiff(df,ax,phase,cls):
     # Add a color bar
     #plt.colorbar(contour, ax=ax)
 
-    contour_filled = ax.contourf(xgrid, ygrid, density_diff_thresholded, levels=100, cmap=cmap, alpha=0.6, vmin=-1,
+    contour_filled = ax.contourf(xgrid, ygrid, density_diff_thresholded, levels=100, cmap=cmap, alpha=0.4, vmin=-1,
                                  vmax=1)
 
     # Add contour lines to show the borders between the zones
-    contour_lines = ax.contour(xgrid, ygrid, density_diff_thresholded, levels=100, colors='black', linewidths=0.5)
+    contour_lines = ax.contour(xgrid, ygrid, density_diff_thresholded, levels=100, colors='white', linewidths=0.3)
 
     # Add a color bar for the filled contour plot
     plt.colorbar(contour_filled, ax=ax)
@@ -284,7 +284,7 @@ def make_DensityHeatmapDiff(df,ax,phase,cls):
 
 def ST_DBSCANClustering(filename):
 
-  df_all = pd.read_csv(filename,nrows=10000)
+  df_all = pd.read_csv(filename )
   #df_all['individualPosition'] = df_all['individualPosition'].replace('NONE', 'JUNGLE')
   #df_all['time'] = df_all.groupby(['matchId', 'participantId']).cumcount() + 1
   #df_all.to_csv(outputdata_pathtimeline,index=False)
@@ -293,14 +293,14 @@ def ST_DBSCANClustering(filename):
 
   df_all=df_all[df_all['participantId'] <6]
 
-  Make_densityheatmap_PerPhase(df_all)
+  #Make_densityheatmap_PerPhase(df_all)
   #spatio_temporalHeatmap(df_all)
 
   #Make_densityheatmap_RolesPerWin(df_all)
 
   #Make_densityheatmap_Roles(df_all)
 
-  #Make_densityheatmap_Ranks(df_all)
+  Make_densityheatmap_Ranks(df_all)
 
   #Make_densityheatmap_DiffTwoRanks(df_all)
 
@@ -329,8 +329,8 @@ def Make_densityheatmap_DiffTwoRanks(df_all):
     plt.show()
 
 def Make_densityheatmap_Ranks(df_all):
-        win = 'all'
-        # df_all = df_all[df_all['win'] == win]
+        #win = 1
+        #df_all = df_all[df_all['win'] == win]
         # rank='EMERALD'
         # df_all=df_all[df_all['tier']==rank]
         # Determine grid size
@@ -338,15 +338,29 @@ def Make_densityheatmap_Ranks(df_all):
         cols = len(Rank_list)
 
         # Create a figure with subplots
-        fig, axes = plt.subplots(rows, cols, figsize=(15, 9))
-
+        fig, axes = plt.subplots(rows, cols, figsize=(18, 12))
         # Flatten the axes array for easy iteration
         axes = axes.flatten()
+        """ fig.patch.set_alpha(0)
+        for ax in axes:
+            ax.patch.set_alpha(0)  # Makes each subplot background transparent
+            # Remove all borders, ticks, and axis labels
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_title("", fontsize=0)  # No title
+
+        """
         role = 'JUNGLE'
         df_all = df_all[df_all['individualPosition'] == role]
         i = -1
         for phase in df_all['Phase'].unique():
-
+            #df_phase=df_all
             df_phase = df_all[df_all['Phase'] == phase]
             for cls in Rank_list:
                 i = i + 1
@@ -354,8 +368,8 @@ def Make_densityheatmap_Ranks(df_all):
 
                 df = df_phase[df_phase['tier'] == cls]
                 print(len(df))
-                if len(df) > 60000:
-                    df = df.sample(n=60000, random_state=1)
+                if len(df) > 6000:
+                    df = df.sample(n=6000, random_state=1)
 
                 # Normalize spatial and temporal features
                 # scaler = MinMaxScaler()
@@ -370,7 +384,7 @@ def Make_densityheatmap_Ranks(df_all):
                 min_samples_value = 5  # Decrease this value to allow clusters to form more easily
 
                 # clusterer = DBSCAN(eps=eps_value, min_samples=min_samples_value,metric='euclidean')
-
+                """
                 clusterer = hdbscan.HDBSCAN(min_cluster_size=10, metric='euclidean')
                 df['cluster_label'] = clusterer.fit_predict(features)
                 no_lables = len(df['cluster_label'].unique())
@@ -383,7 +397,8 @@ def Make_densityheatmap_Ranks(df_all):
                     #spatio_temporalHeatmap(df)
 
                     plot_density_with_sequence(df, 6, win, cls, phase, role, axes[i])
-
+                """
+                Visualize_LolMapBasedonPosition_ax(df, 'all', cls, phase, axes[i])
 
                 # visulize_spacecubWithHeatmap(df,phase,cls)
                 # cluster_description(idf)
@@ -411,11 +426,11 @@ def Make_densityheatmap_RolesPerWin(df_all):
     # df_all=df_all[df_all['tier']==rank]
     rank = 'all'
     # Determine grid size
-    rows = 1
+    rows = 3
     cols = 3
     win_list=[0,1]
     # Create a figure with subplots
-    fig, axes = plt.subplots(rows, cols, figsize=(15,9))
+    fig, axes = plt.subplots(rows, cols, figsize=(24,21))
     role='JUNGLE'
     df_all = df_all[df_all['individualPosition']==role]
     # Flatten the axes array for easy iteration
@@ -433,14 +448,14 @@ def Make_densityheatmap_RolesPerWin(df_all):
             print(len(df))
             #if len(df) > 50000:
             #    df = df.sample(n=50000, random_state=42)
-            Visualize_LolMapBasedonPosition_ax(df,role,cls,phase,axes[i])
+            #Visualize_LolMapBasedonPosition_ax(df,role,cls,phase,axes[i])
             #plt.show()
         ###adding diffrence heatmap
         i=i+1
-        #make_DensityHeatmapDiff(df_phase, axes[i], phase, 'diff')
+        make_DensityHeatmapDiff(df_phase, axes[i], phase, 'diff')
         #plt.show()
-    #plt.tight_layout()
-    plt.subplots_adjust(wspace=2, hspace=0.3)
+    plt.tight_layout()
+    #plt.subplots_adjust(wspace=0.1, hspace=0.1)
     plt.show()
 
 def Make_densityheatmap_PerPhase(df_all):
@@ -883,7 +898,10 @@ def Visualize_LolMapBasedonPosition(df,type,rank,phase):
     plt.show()
 
 def Visualize_LolMapBasedonPosition_ax(df, type, rank, phase,ax):
-    #background_image = plt.imread('../RealLOLMap.png')
+    import matplotlib.image as mpimg
+    background_image = mpimg.imread('../Real_LOLMap.png')
+
+
     x = df['position_x']
     y = df['position_y']
     # Set global font size
@@ -893,19 +911,29 @@ def Visualize_LolMapBasedonPosition_ax(df, type, rank, phase,ax):
     ax.set_ylim(0, 16000)
 
     # Add the background image
-   # ax.imshow(background_image, extent=extent, aspect='auto')
+    #ax.imshow(background_image, extent=[0, background_image.shape[1], 0, background_image.shape[0]], origin='upper')
+    ax.imshow(background_image, extent=extent, aspect='auto')
+    if len (df)<60000:
+        s=0.5
+    else:
+        s=0.5
     sns.scatterplot(x='position_x', y='position_y', data=df, s=1, color='black', alpha=0.5,ax=ax)
     # plt.scatter(df['position_x'], df['position_y'], s=1, color='black', alpha=0.3)
     # Draw the density heatmap
     sns.kdeplot(x='position_x', y='position_y', data=df, cmap='coolwarm', fill=None, thresh=0, levels=100,
-                alpha=0.5,ax=ax)
+                alpha=0.5,ax=ax,  bw_adjust=s)
 
 
     # Customize font sizes
     #ax.set_xlabel('X', fontsize=18,fontweight='bold')
-    #ax.set_ylabel('Y', fontsize=18,fontweight='bold')
-    #ax.set_title(phase, fontsize=16,fontweight='bold')
-    #ax.tick_params(axis='both', which='major', labelsize=12)  # Font size for ticks
+   # ax.set_ylabel('Y', fontsize=18,fontweight='bold')
+   # ax.set_title( rank, fontsize=16,fontweight='bold')
+    x_ticks = np.arange(0, 16000, 4000)  # Start from 0, end at max(x), step by 4000
+    y_ticks =np.arange(0, 16000, 4000)  # Example for y-axis ticks
+
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.tick_params(axis='both', which='major', labelsize=12)  # Font size for ticks
 
     #ax.set_title(f'density heatmap for {rank} in {getname(type)} -- phase={phase} ')
 
